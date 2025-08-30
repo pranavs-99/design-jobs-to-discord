@@ -16,4 +16,7 @@ jobs:
       - run: pip install -r requirements.txt
       - env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_COMPANIES: ${{ vars.GH_COMPANIES }}
+          LEVER_COMPANIES: ${{ vars.LEVER_COMPANIES }}
         run: python main.py
+
