@@ -65,7 +65,7 @@ US_HINTS = [
     ", TX", ", UT", ", VA", ", VT", ", WA", ", WI", ", WV"
 ]
 
-WINDOW_MINUTES = 1440  # use 30 after first successful post
+WINDOW_MINUTES = 30  # use 30 after first successful post
 MAX_POSTS = 10
 
 # ----------------------------
