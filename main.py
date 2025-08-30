@@ -218,6 +218,109 @@ def fetch_greenhouse_jobs(board_token: str):
             "published": now_utc().isoformat(),
         })
     return out
+def fetch_ashby_jobs(board_name: str):
+    """Ashby public job board API (no auth). board_name is the last path segment from jobs.ashbyhq.com/<board_name>"""
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{board_name}"
+    try:
+        r = requests.get(url, params={"includeCompensation": "true"}, headers=REQUEST_HEADERS, timeout=20)
+        if r.status_code != 200:
+            print(f"WARN: Ashby[{board_name}] HTTP {r.status_code}")
+            return []
+        data = r.json()
+    except Exception as e:
+        print(f"WARN: Ashby fetch failed for {board_name}: {e}")
+        return []
+
+    jobs = data.get("jobs") or []
+    out = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        title = job.get("title", "") or ""
+        desc  = job.get("descriptionPlain") or job.get("descriptionHtml") or ""
+        loc   = job.get("location", "") or ""
+        url   = job.get("jobUrl") or job.get("applyUrl")
+
+        # US filter + keywords
+        if USA_ONLY and not is_us_only(" ".join([loc, desc])):
+            continue
+        if not match_keywords(f"{title} {desc}"):
+            continue
+
+        published_raw = job.get("publishedAt")
+        try:
+            dt = dateparser.parse(published_raw) if published_raw else now_utc()
+            if not dt.tzinfo: dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(timezone.utc)
+        except Exception:
+            dt = now_utc()
+
+        out.append({
+            "title": title.strip(),
+            "url": url,
+            "summary": loc.strip(),
+            "source": "Ashby",
+            "published": dt.isoformat(),
+        })
+    return out
+def fetch_google_jobs():
+    """
+    Google Careers JSON. No auth, but schema/params can change.
+    We query for your KEYWORDS and 'United States'.
+    """
+    base = "https://careers.google.com/api/v3/search/"
+    # Simple query: join your existing design KEYWORDS
+    q = " OR ".join(KEYWORDS)
+    params = {
+        "q": q,
+        "location": "United States",
+        "page_size": 50,  # try to grab a page at a time
+    }
+    try:
+        r = requests.get(base, params=params, headers=REQUEST_HEADERS, timeout=20)
+        if r.status_code != 200:
+            print(f"WARN: Google Careers HTTP {r.status_code}; params={params}")
+            return []
+        data = r.json()
+    except Exception as e:
+        print("WARN:  Careers fetch failed:", repr(e))
+        return []
+
+    out = []
+    for job in data.get("jobs", []):
+        if not isinstance(job, dict):
+            continue
+        title = job.get("title", "") or ""
+        desc  = job.get("summary") or job.get("description") or ""
+        city  = job.get("city") or ""
+        state = job.get("state") or ""
+        cc    = job.get("country_code") or ""
+        loc_blob = " ".join([city, state, cc])
+
+        # Respect USA + keywords
+        if USA_ONLY and not is_us_only(" ".join([loc_blob, desc])):
+            continue
+        if not match_keywords(f"{title} {desc}"):
+            continue
+
+        link = job.get("apply_url") or job.get("job_url") or "https://careers.google.com/"
+        pub  = job.get("publish_date") or job.get("created") or job.get("modified")
+        try:
+            dt = dateparser.parse(pub) if pub else now_utc()
+            if not dt.tzinfo: dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(timezone.utc)
+        except Exception:
+            dt = now_utc()
+
+        out.append({
+            "title": f"{title} — Google",
+            "url": link,
+            "summary": loc_blob.strip(),
+            "source": "Google Careers",
+            "published": dt.isoformat(),
+        })
+    return out
+
 
 def fetch_lever_jobs(company_slug: str):
     url = f"https://api.lever.co/v0/postings/{company_slug}?mode=json"
@@ -274,6 +377,16 @@ def gather():
         items += fetch_greenhouse_jobs(token)
     for slug in LEVER_COMPANIES:
         items += fetch_lever_jobs(slug)
+
+        # 2b) Ashby orgs (optional)
+    ASHBY_ORGS = [s.strip() for s in os.getenv("ASHBY_ORGS","").split(",") if s.strip()]
+    for org in ASHBY_ORGS:
+        items += fetch_ashby_jobs(org)
+
+    # 2c) Google Careers (optional, off by default)
+    if os.getenv("GOOGLE_ENABLE", "0") == "1":
+        items += fetch_google_jobs()
+
 
     # 3) De-dupe by URL and sort newest first
     dedup = {}
