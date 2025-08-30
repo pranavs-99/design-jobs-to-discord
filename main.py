@@ -2,6 +2,56 @@ import os, requests, feedparser
 from datetime import datetime, timezone, timedelta
 from dateutil import parser as dateparser
 
+# ===== Persistent state (remember what's been posted) =====
+import json
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+
+STATE_FILE = ".data/posted.json"   # will live in your repo
+MAX_STATE  = 5000                  # keep up to 5k seen URLs
+
+def canonicalize_url(url: str) -> str:
+    """Normalize URLs so tracking params or trailing slashes don't cause dupes."""
+    try:
+        u = (url or "").strip()
+        if not u:
+            return u
+        parts = urlparse(u)
+        scheme = (parts.scheme or "https").lower()
+        netloc = parts.netloc.lower()
+        path = parts.path.rstrip("/")  # drop trailing slash
+        # drop fragments and marketing params
+        qs = parse_qsl(parts.query, keep_blank_values=True)
+        keep = []
+        for k, v in qs:
+            kl = k.lower()
+            if kl.startswith("utm_") or kl in {"ref", "ref_"}:
+                continue
+            keep.append((k, v))
+        query = urlencode(keep, doseq=True)
+        return urlunparse((scheme, netloc, path, "", query, ""))
+    except Exception:
+        return url or ""
+
+def load_posted() -> dict:
+    """Return {canonical_url: iso_timestamp_last_posted}."""
+    try:
+        with open(STATE_FILE, "r") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def save_posted(d: dict) -> None:
+    """Trim old entries and write file."""
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    # trim to newest MAX_STATE by timestamp
+    items = sorted(d.items(), key=lambda kv: kv[1])[-MAX_STATE:]
+    with open(STATE_FILE, "w") as f:
+        json.dump(dict(items), f)
+
+
 # ----------------------------
 # Config & environment
 # ----------------------------
@@ -426,4 +476,20 @@ def post_to_discord(items):
 # ----------------------------
 if __name__ == "__main__":
     items = gather()
-    post_to_discord(items)
+
+    posted = load_posted()
+    fresh = []
+    for it in items:
+        cu = canonicalize_url(it.get("url"))
+        if not cu:
+            continue
+        if cu in posted:
+            continue
+        fresh.append(it)
+        posted[cu] = it.get("published") or now_utc().isoformat()
+
+    # Post only the fresh items
+    post_to_discord(fresh)
+
+    # Save what we just posted
+    save_posted(posted)
