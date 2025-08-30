@@ -23,7 +23,7 @@ KEYWORDS = [
     "ui intern", "product design intern", "internship"
 ]
 
-WINDOW_MINUTES = 30   # only post items published in the last N minutes
+WINDOW_MINUTES = 1440  # 24 hours for first run
 MAX_POSTS = 8         # avoid spamming a channel
 
 def now_utc():
@@ -116,6 +116,9 @@ def gather():
 
 def post_to_discord(items):
     if not items:
+        requests.post(WEBHOOK, json={
+            "content": f"No new design jobs in the last {WINDOW_MINUTES} minutes."
+        }, timeout=20).raise_for_status()
         return
     embeds = []
     for it in items:
@@ -126,12 +129,9 @@ def post_to_discord(items):
             "timestamp": it["published"],
             "footer": {"text": f"{it['source']}"},
         })
-    payload = {
-        "content": f"**New design jobs ({len(items)})**",
-        "embeds": embeds[:10]  # Discord allows up to 10 embeds per message
-    }
-    r = requests.post(WEBHOOK, json=payload, timeout=20)
-    r.raise_for_status()
+    payload = {"content": f"**New design jobs ({len(items)})**","embeds": embeds[:10]}
+    requests.post(WEBHOOK, json=payload, timeout=20).raise_for_status()
+
 
 if __name__ == "__main__":
     items = gather()
