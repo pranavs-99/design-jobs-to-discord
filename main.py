@@ -455,7 +455,7 @@ def gather():
 # ----------------------------
 def post_to_discord(items):
     if not items:
-        payload = {"content": f"No new design jobs in the last {WINDOW_MINUTES} minutes."}
+        payload = {"content": no items}
     else:
         embeds = []
         for it in items:
