@@ -1,19 +1,16 @@
-name: Post design jobs to Discord
-
+name: Test Discord Webhook
 on:
-  schedule:
-    - cron: "*/30 * * * *"  # every 30 minutes
-  workflow_dispatch: {}      # allow manual run
+  workflow_dispatch: {}
 
 jobs:
-  run:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - env:
+      - name: Post hello to Discord
+        env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python main.py
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+            -d '{"content":"Hello from GitHub Actions 👋 If you see this, the webhook + secret are wired correctly."}' \
+            "$DISCORD_WEBHOOK_URL"
+
