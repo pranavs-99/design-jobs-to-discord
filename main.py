@@ -22,6 +22,49 @@ KEYWORDS = [
     "web designer", "visual designer", "design intern", "ux intern",
     "ui intern", "product design intern", "internship"
 ]
+# --- Location filter (USA only) ---
+USA_ONLY = True  # set to False to disable later
+
+US_TERMS = {
+    "united states", "u.s.", "u.s.a", "usa", "us only", "us-only",
+    "authorized to work in the us", "eligible to work in the us",
+    "within the us", "based in the us", "north america"  # include if NA-only is OK
+}
+
+US_STATES = [
+    "alabama","alaska","arizona","arkansas","california","colorado","connecticut",
+    "delaware","florida","georgia","hawaii","idaho","illinois","indiana","iowa",
+    "kansas","kentucky","louisiana","maine","maryland","massachusetts","michigan",
+    "minnesota","mississippi","missouri","montana","nebraska","nevada","new hampshire",
+    "new jersey","new mexico","new york","north carolina","north dakota","ohio",
+    "oklahoma","oregon","pennsylvania","rhode island","south carolina","south dakota",
+    "tennessee","texas","utah","vermont","virginia","washington","west virginia",
+    "wisconsin","wyoming","district of columbia","washington dc","dc"
+]
+
+NON_US_HINTS = [
+    "europe","emea","uk","united kingdom","canada","canada only","mexico","latam",
+    "apac","australia","new zealand","singapore","india","germany","france","spain",
+    "italy","netherlands","sweden","norway","denmark","finland","ireland","switzerland",
+    "poland","romania","czech","slovakia","hungary","portugal","belgium","austria",
+    "greece","turkey","uae","saudi","qatar","nigeria","south africa","philippines",
+    "pakistan","bangladesh","indonesia","vietnam","thailand","japan","korea","china",
+    "hong kong","taiwan","malaysia","brazil","argentina","chile","colombia","peru"
+]
+
+def is_us_only(text: str) -> bool:
+    """Heuristic: include if the text explicitly mentions US/USA or any US state.
+       Exclude if it mentions non-US-only regions. Unknown => exclude (strict)."""
+    t = (text or "").lower()
+    # Negative hints first: if it says EU/UK/Canada-only etc., drop it.
+    if any(h in t for h in NON_US_HINTS):
+        return False
+    # Positive hints: United States or any state name
+    if any(term in t for term in US_TERMS):
+        return True
+    if any(state in t for state in US_STATES):
+        return True
+    return False  # strict: if we can't tell, skip
 
 WINDOW_MINUTES = 1440  # 24 hours for first run
 MAX_POSTS = 8         # avoid spamming a channel
