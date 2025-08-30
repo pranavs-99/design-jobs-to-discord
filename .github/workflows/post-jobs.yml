@@ -5,12 +5,10 @@ on:
     - cron: "*/30 * * * *"   # every 30 minutes (UTC)
   workflow_dispatch: {}       # allow manual run
 
-# Avoid overlapping runs (e.g., if a slow run bumps into the next)
 concurrency:
   group: post-design-jobs
   cancel-in-progress: true
 
-# Minimal permissions for checkout
 permissions:
   contents: read
 
@@ -18,17 +16,30 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
-    # Make GH/Lever company lists available to all steps (optional if you use them)
     env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       GH_COMPANIES: ${{ vars.GH_COMPANIES }}
       LEVER_COMPANIES: ${{ vars.LEVER_COMPANIES }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      PYTHONUNBUFFERED: "1"   # nicer logs
+      PYTHONUNBUFFERED: "1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check repo layout
+        run: |
+          test -f requirements.txt || { echo "::error file=requirements.txt::requirements.txt not found at repo root"; exit 1; }
+          test -f main.py || { echo "::error file=main.py::main.py not found at repo root"; exit 1; }
+
+      - name: Verify secrets/vars present
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "::error title=Missing secret::DISCORD_WEBHOOK_URL is not set in repo Secrets."
+            exit 1
+          fi
+          echo "OK: Found DISCORD_WEBHOOK_URL (length=${#DISCORD_WEBHOOK_URL})."
+          echo "GH_COMPANIES='${GH_COMPANIES}'"
+          echo "LEVER_COMPANIES='${LEVER_COMPANIES}'"
 
       - name: Set up Python
         uses: actions/setup-python@v5
