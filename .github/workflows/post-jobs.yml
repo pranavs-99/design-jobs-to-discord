@@ -2,21 +2,43 @@ name: Post design jobs to Discord
 
 on:
   schedule:
-    - cron: "*/30 * * * *"  # every 30 minutes
-  workflow_dispatch: {}      # allow manual run
+    - cron: "*/30 * * * *"   # every 30 minutes (UTC)
+  workflow_dispatch: {}       # allow manual run
+
+# Avoid overlapping runs (e.g., if a slow run bumps into the next)
+concurrency:
+  group: post-design-jobs
+  cancel-in-progress: true
+
+# Minimal permissions for checkout
+permissions:
+  contents: read
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Make GH/Lever company lists available to all steps (optional if you use them)
+    env:
+      GH_COMPANIES: ${{ vars.GH_COMPANIES }}
+      LEVER_COMPANIES: ${{ vars.LEVER_COMPANIES }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      PYTHONUNBUFFERED: "1"   # nicer logs
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          GH_COMPANIES: ${{ vars.GH_COMPANIES }}
-          LEVER_COMPANIES: ${{ vars.LEVER_COMPANIES }}
-        run: python main.py
+          cache: "pip"
+          cache-dependency-path: requirements.txt
 
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run job fetcher
+        run: python main.py
