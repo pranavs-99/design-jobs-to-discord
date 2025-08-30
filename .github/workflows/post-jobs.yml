@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   run:
@@ -53,3 +53,18 @@ jobs:
 
       - name: Run job fetcher
         run: python main.py
+
+      - name: Save state (posted URLs)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p .data
+          [ -f .data/posted.json ] || echo "{}" > .data/posted.json
+          git add .data/posted.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update posted.json [skip ci]"
+            git push
+          else
+            echo "No state changes to commit."
+          fi
+
