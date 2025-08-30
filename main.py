@@ -66,7 +66,7 @@ def is_us_only(text: str) -> bool:
         return True
     return False  # strict: if we can't tell, skip
 
-WINDOW_MINUTES = 1440  # 24 hours for first run
+WINDOW_MINUTES = 30   # only post items published in the last N minutes
 MAX_POSTS = 8         # avoid spamming a channel
 
 def now_utc():
