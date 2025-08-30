@@ -4,7 +4,9 @@ from dateutil import parser as dateparser
 
 WEBHOOK = os.environ["DISCORD_WEBHOOK_URL"]
 
-# Public, ToS-friendly sources
+# ----------------------------
+# Sources (public, ToS-friendly)
+# ----------------------------
 RSS_FEEDS = [
     # Design-heavy boards
     "https://dribbble.com/jobs.rss",
@@ -14,18 +16,23 @@ RSS_FEEDS = [
     # Remotive (all jobs RSS; we’ll filter by keywords + US)
     "https://remotive.com/feed",
 ]
+
 JSON_SOURCES = [
     # Remote OK (24h delayed free API; still useful signal)
     "https://remoteok.com/api"
 ]
 
+# ----------------------------
+# Filters
+# ----------------------------
 KEYWORDS = [
     "ux", "user experience", "product designer", "product design",
     "ui", "user interface", "ui/ux", "interaction designer",
     "web designer", "visual designer", "design intern", "ux intern",
     "ui intern", "product design intern", "internship"
 ]
-# --- Location filter (USA only) ---
+
+# Location filter (USA only)
 USA_ONLY = True  # set to False to disable later
 
 US_TERMS = {
@@ -54,7 +61,8 @@ NON_US_HINTS = [
     "pakistan","bangladesh","indonesia","vietnam","thailand","japan","korea","china",
     "hong kong","taiwan","malaysia","brazil","argentina","chile","colombia","peru"
 ]
-# Extra US location check for ATS "location" strings
+
+# Extra US location check for ATS "location" strings (e.g., "New York, NY")
 US_HINTS = [
     "united states", "u.s.", "usa", "u.s.a.", "us-based", "us based",
     "anywhere in the us", "united states of america",
@@ -64,25 +72,27 @@ US_HINTS = [
     ", NV", ", NY", ", OH", ", OK", ", OR", ", PA", ", PR", ", RI", ", SC", ", SD", ", TN",
     ", TX", ", UT", ", VA", ", VT", ", WA", ", WI", ", WV"
 ]
+
 def is_us_location(text: str) -> bool:
     t = (text or "").lower()
     return any(h.lower() in t for h in US_HINTS)
 
 def is_us_only(text: str) -> bool:
-    """Heuristic: include if the text explicitly mentions US/USA or any US state.
+    """Heuristic: include if text explicitly mentions US/USA or any US state.
        Exclude if it mentions non-US-only regions. Unknown => exclude (strict)."""
     t = (text or "").lower()
-    # Negative hints first: if it says EU/UK/Canada-only etc., drop it.
     if any(h in t for h in NON_US_HINTS):
         return False
-    # Positive hints: United States or any state name
     if any(term in t for term in US_TERMS):
         return True
     if any(state in t for state in US_STATES):
         return True
     return False  # strict: if we can't tell, skip
 
-WINDOW_MINUTES = 1440  # 24 hours
+# ----------------------------
+# Posting window & limits
+# ----------------------------
+WINDOW_MINUTES = 1440  # 24 hours for backfill; change to 30 later
 MAX_POSTS = 10         # avoid spamming a channel
 
 def now_utc():
@@ -98,6 +108,9 @@ def match_keywords(text):
     t = (text or "").lower()
     return any(k in t for k in KEYWORDS)
 
+# ----------------------------
+# Parsers (RSS / JSON)
+# ----------------------------
 def parse_rss(url):
     out = []
     feed = feedparser.parse(url)
@@ -113,7 +126,11 @@ def parse_rss(url):
             dt = dt.astimezone(timezone.utc)
         except Exception:
             dt = now_utc()  # fallback
+
         if match_keywords(f"{title} {summ}") and within_window(dt):
+            # USA filter for RSS sources (title/summary usually include location)
+            if USA_ONLY and not is_us_only(f"{title} {summ}"):
+                continue
             out.append({
                 "title": title.strip(),
                 "url": link,
@@ -128,8 +145,7 @@ def parse_remoteok(url):
     try:
         data = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=20).json()
         for item in data:
-            # skip non-job entries that sometimes appear at index 0
-            if not isinstance(item, dict): 
+            if not isinstance(item, dict):
                 continue
             title = item.get("position") or item.get("title") or ""
             company = item.get("company") or ""
@@ -137,7 +153,8 @@ def parse_remoteok(url):
             tags = " ".join(item.get("tags") or [])
             desc = item.get("description") or ""
             text = f"{title} {company} {tags} {desc}"
-            # Dates: RemoteOK provides 'date' string; attempt parse
+
+            # Dates
             rawdt = item.get("date") or item.get("created_at") or ""
             try:
                 dt = dateparser.parse(rawdt)
@@ -146,6 +163,18 @@ def parse_remoteok(url):
                 dt = dt.astimezone(timezone.utc)
             except Exception:
                 dt = now_utc()
+
+            # USA filter using whatever location hints exist
+            loc_blob = " ".join([
+                title or "", company or "", tags or "",
+                item.get("location","") or "",
+                item.get("region","") or "",
+                item.get("country","") or "",
+                desc or ""
+            ])
+            if USA_ONLY and not is_us_only(loc_blob):
+                continue
+
             if match_keywords(text) and within_window(dt):
                 out.append({
                     "title": f"{title} — {company}".strip(" —"),
@@ -157,6 +186,10 @@ def parse_remoteok(url):
     except Exception:
         pass
     return out
+
+# ----------------------------
+# Company ATS fetchers (optional)
+# ----------------------------
 def fetch_greenhouse_jobs(board_token: str):
     """Public Greenhouse Job Board API (read-only per company)."""
     url = f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs"
@@ -172,7 +205,6 @@ def fetch_greenhouse_jobs(board_token: str):
         desc  = (job.get("content") or "")[:1000]
         if not link:
             continue
-        # Apply same filters you already use
         if USA_ONLY and not is_us_location(loc + " " + desc):
             continue
         if not match_keywords(f"{title} {desc}"):
@@ -215,9 +247,13 @@ def fetch_lever_jobs(company_slug: str):
         })
     return out
 
+# ----------------------------
+# Gather everything
+# ----------------------------
 def gather():
     items = []
-    # 1) Existing public sources
+
+    # 1) Public sources
     for f in RSS_FEEDS:
         items += parse_rss(f)
     for j in JSON_SOURCES:
@@ -235,32 +271,43 @@ def gather():
     # 3) De-dupe by URL and sort newest first
     dedup = {}
     for i in items:
+        if not i.get("url"):
+            continue
         dedup[i["url"]] = i
     items = list(dedup.values())
     items.sort(key=lambda x: x.get("published",""), reverse=True)
     return items[:MAX_POSTS]
 
-
+# ----------------------------
+# Discord posting
+# ----------------------------
 def post_to_discord(items):
+    # Always post something so you know it ran
     if not items:
         requests.post(WEBHOOK, json={
             "content": f"No new design jobs in the last {WINDOW_MINUTES} minutes."
         }, timeout=20).raise_for_status()
         return
+
     embeds = []
     for it in items:
         embeds.append({
             "title": it["title"][:256],
             "url": it["url"],
-            "description": (it["summary"] or "")[:300],
-            "timestamp": it["published"],
-            "footer": {"text": f"{it['source']}"},
+            "description": (it.get("summary") or "")[:300],
+            "timestamp": it.get("published"),
+            "footer": {"text": f"{it.get('source','')}"}
         })
-    payload = {"content": f"**New design jobs ({len(items)})**","embeds": embeds[:10]}
+
+    payload = {
+        "content": f"**New design jobs ({len(items)})**",
+        "embeds": embeds[:10]  # Discord allows up to 10 embeds per message
+    }
     requests.post(WEBHOOK, json=payload, timeout=20).raise_for_status()
 
-
+# ----------------------------
+# Entry point
+# ----------------------------
 if __name__ == "__main__":
     items = gather()
-    if items:
-        post_to_discord(items)
+    post_to_discord(items)
