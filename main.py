@@ -455,7 +455,9 @@ def gather():
 # ----------------------------
 def post_to_discord(items):
     if not items:
-        payload = {"content": no items}
+        # Optional: keep a log line for Actions
+        print(f"No new items in the last {WINDOW_MINUTES} minutes.")
+        return
     else:
         embeds = []
         for it in items:
